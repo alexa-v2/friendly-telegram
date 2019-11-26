@@ -19,5 +19,3 @@ We also have a dedicated Telegram support group. Got any doubts or issues while 
 
 [![Core Lint Status](https://github.com/friendly-telegram/friendly-telegram/workflows/Lint/badge.svg)](https://github.com/friendly-telegram/friendly-telegram/actions "Core Lint Status")
 [![Modules Lint Status](https://github.com/friendly-telegram/modules-repo/workflows/Lint/badge.svg)](https://github.com/friendly-telegram/modules-repo/actions "Modules Lint Status")
-
-// Just need to trigger a rebuild
