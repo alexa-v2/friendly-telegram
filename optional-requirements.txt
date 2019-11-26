@@ -7,3 +7,4 @@ selenium
 bs4
 humanize
 wikipedia
+urbandict
