@@ -4,3 +4,6 @@ cairosvg
 Pillow >= 6.1.0
 cowpy
 selenium
+bs4
+humanize
+wikipedia
