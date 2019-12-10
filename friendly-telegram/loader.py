@@ -202,11 +202,11 @@ class Modules():
     def dispatch(self, command):
         """Dispatch command to appropriate module"""
         try:
-            return command, self.commands[command]
+            return command, self.commands[command.lower()]
         except KeyError:
             try:
-                cmd = self.aliases[command]
-                return cmd, self.commands[cmd]
+                cmd = self.aliases[command.lower()]
+                return cmd, self.commands[cmd.lower()]
             except KeyError:
                 return command, None
 
@@ -232,7 +232,8 @@ class Modules():
                         logging.debug("No config value for %s", conf)
                         mod.config[conf] = mod.config.getdef(conf)
             logging.debug(mod.config)
-        if hasattr(mod, "strings"):
+        if hasattr(mod, "strings") and babel is not None:
+            mod.strings = mod.strings.copy()  # For users with many accounts with diff. translations
             for key, value in mod.strings.items():
                 new = babel.getkey(mod.__module__ + "." + key)
                 if new is not False:
