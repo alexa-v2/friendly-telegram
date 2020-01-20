@@ -26,6 +26,7 @@ import functools
 import collections
 import sqlite3
 import importlib
+import signal
 import shlex
 
 from telethon import TelegramClient, events
@@ -38,7 +39,15 @@ from . import utils, loader
 
 from .database import backend, local_backend, frontend
 from .translations.core import Translator
-from .web import core
+
+try:
+    from .web import core
+except ImportError:
+    web_available = False
+    logging.error("Unable to import web")
+else:
+    web_available = True
+
 
 importlib.import_module(".modules", __package__)  # Required on 3.5 only
 
@@ -86,6 +95,7 @@ class MemoryHandler(logging.Handler):
 _formatter = logging.Formatter(logging.BASIC_FORMAT, "")  # pylint: disable=C0103
 _handler = logging.StreamHandler()  # pylint: disable=C0103
 _handler.setFormatter(_formatter)
+logging.getLogger().handlers = []
 logging.getLogger().addHandler(MemoryHandler(_handler, 500))
 logging.getLogger().setLevel(0)
 logging.captureWarnings(True)
@@ -144,9 +154,9 @@ async def handle_command(modules, db, event):
         except Exception as e:
             logging.exception("Command failed")
             try:
-                await message.edit("<code>Request failed! Request was " + message.message
-                                   + ". Please report it in the support group (`.support`) "
-                                   + "with the logs (`.logs error`)</code>")
+                await message.edit("<b>Request failed! Request was</b> <code>" + utils.escape_html(message.message)
+                                   + "</code><b>. Please report it in the support group (</b><code>{0}support</code>"
+                                   "<b>) along with the logs (</b><code>{0}logs error</code><b>)</b>".format(prefix))
             finally:
                 raise e
 
@@ -191,6 +201,8 @@ def parse_arguments():
     parser.add_argument("--heroku", action="store_true")
     parser.add_argument("--local-db", dest="local", action="store_true")
     parser.add_argument("--web-only", dest="web_only", action="store_true")
+    parser.add_argument("--no-web", dest="web", action="store_false")
+    parser.add_argument("--heroku-web-internal", dest="heroku_web_internal", action="store_true", help="This is for internal use only. If you use it, things will go wrong.")
     arguments = parser.parse_args()
     logging.debug(arguments)
     if sys.platform == "win32":
@@ -240,6 +252,11 @@ def get_api_token():
                 return api_token
         else:
             return api_token
+
+
+def sigterm(signum, handler):
+    # This ensures that we call atexit hooks and close FDs when Heroku kills us un-gracefully
+    sys.exit(143)  # SIGTERM + 128
 
 
 def main():
@@ -311,7 +328,15 @@ def main():
         print("Installed to heroku successfully! Type .help in Telegram for help.")  # noqa: T001
         return
 
-    web = core.Web()
+    if arguments.heroku_web_internal:
+        signal.signal(signal.SIGTERM, sigterm)
+
+    if web_available:
+        web = core.Web() if arguments.web else None
+    else:
+        if arguments.heroku_web_internal:
+            raise RuntimeError("Web required but unavailable")
+        web = None
 
     loops = [amain(client, clients, web, arguments) for client in clients]
 
@@ -377,6 +402,7 @@ async def amain(client, allclients, web, arguments):
             client.add_event_handler(functools.partial(handle_command, modules, db),
                                      events.NewMessage(outgoing=True, forwards=False))
         print("Started for " + str((await client.get_me(True)).user_id))  # noqa: T001
-        await web.add_loader(client, modules, db)
-        await web.start_if_ready(len(allclients))
+        if web:
+            await web.add_loader(client, modules, db)
+            await web.start_if_ready(len(allclients))
         await client.run_until_disconnected()

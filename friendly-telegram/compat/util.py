@@ -15,7 +15,6 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-import functools
 import inspect
 
 from telethon.extensions import markdown
@@ -29,14 +28,14 @@ def get_cmd_name(pattern):
     """Get the first word out of a regex, hoping that it is easy to parse"""
     # Find command string: ugly af :)
     logger.debug(pattern)
-    if pattern == "(?i)":
+    if pattern.startswith("(?i)"):
         pattern = pattern[4:]
-    if pattern[0] == "^":
+    if pattern.startswith("^"):
         pattern = pattern[1:]
-    if pattern[0] == ".":
+    if pattern.startswith("."):
         # That seems to be the normal command prefix
         pattern = pattern[1:]
-    elif pattern[:2] == r"\.":
+    elif pattern.startswith(r"\."):
         # That seems to be the normal command prefix
         pattern = pattern[2:]
     else:
@@ -68,12 +67,22 @@ class MarkdownBotPassthrough():
         for key, arg in kwargs.items():
             if isinstance(arg, type(self)):
                 kwargs[key] = arg.__under
-        kwargs["parse_mode"] = "markdown"
+        kwargs.setdefault("parse_mode", "markdown")
         try:
             ret = func(*args, **kwargs)
         except TypeError:
             del kwargs["parse_mode"]
             ret = func(*args, **kwargs)
+        else:
+            if inspect.iscoroutine(ret):
+                async def wrapper():
+                    try:
+                        ret2 = await ret
+                    except TypeError:
+                        del kwargs["parse_mode"]
+                        ret2 = await func(*args, **kwargs)
+                    return self.__convert(ret2)
+                return wrapper()
         return self.__convert(ret)
 
     def __convert(self, ret):
@@ -84,11 +93,12 @@ class MarkdownBotPassthrough():
         if isinstance(ret, list):
             for i, thing in enumerate(ret):
                 ret[i] = self.__convert(thing)
-        elif ret.__class__.__module__.startswith("telethon"):
+        elif getattr(getattr(getattr(ret, "__self__", ret),
+                             "__class__", None), "__module__", "").startswith("telethon"):
             ret = MarkdownBotPassthrough(ret)
             if hasattr(ret, "text"):
                 logger.debug("%r(%s) %r(%s)", ret.entities, type(ret.entities), ret.message, type(ret.message))
-                ret.text = markdown.unparse(ret.message, ret.entities)
+                ret.text = markdown.unparse(ret.message, [x.__under for x in ret.entities or []])
         return ret
 
     def __del__(self):
@@ -154,15 +164,16 @@ class MarkdownBotPassthrough():
         except AttributeError:
             return super().__aexit__(*args, **kwargs)
 
+    def __aiter__(self, *args, **kwargs):
+        try:
+            return self.__under.__aiter__(*args, **kwargs)
+        except AttributeError:
+            return super().__aiter__(*args, **kwargs)
+
     def __getattr__(self, name):
         if name in self.__dict__:
             return self.__dict__[name]
-        ret = getattr(self.__under, name)
-        if inspect.isfunction(ret):
-            ret = functools.partial(self.__function, ret)
-        else:
-            ret = self.__convert(ret)
-        return ret
+        return self.__convert(getattr(self.__under, name))
 
     def __setattr__(self, name, value):
         self.__dict__[name] = value
